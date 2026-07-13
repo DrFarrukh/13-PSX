@@ -132,7 +132,7 @@ class SnapshotScreen extends StatelessWidget {
 
           // ── Financial Composition Pie ──
           SectionCard(
-            title: 'Financial Composition (2023)',
+            title: 'Financial Composition (${data.years.last})',
             child: SizedBox(
               height: 220,
               child: PieChart(

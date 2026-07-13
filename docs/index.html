@@ -286,6 +286,10 @@ streamlit run src/streamlit_app.py</code></pre>
 
 <script>
 // ─────────────────── DATA ───────────────────
+// Pre-baked from financial_data/*.csv files.
+// To regenerate after updating CSV files, run:
+//   python3 -c "import json, csv; ..."  (see src/stock_scrapper.py for data format)
+// or simply run the Streamlit app and re-export the data.
 const YEARS = ["2017","2018","2019","2020","2021","2022","2023"];
 
 const SNAP = {

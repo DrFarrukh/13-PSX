@@ -216,7 +216,7 @@ class DividendScreen extends StatelessWidget {
     final rows = [
       ('Dividend Payments', '${divPayouts.map((p) => p.year).toSet().length} years'),
       ('Latest Payout', divPayouts.isNotEmpty ? '${divPayouts.first.payoutPercent}%' : 'N/A'),
-      ('Payout Ratio (2023)', '${data.ratios['Payout']?.last.toStringAsFixed(1) ?? 'N/A'}%'),
+      ('Payout Ratio (${data.years.last})', '${data.ratios['Payout']?.last.toStringAsFixed(1) ?? 'N/A'}%'),
     ];
     return Table(
       columnWidths: const {0: FlexColumnWidth(2), 1: FlexColumnWidth(1)},

@@ -134,7 +134,7 @@ class FinancialDataLoader {
       interestCover: get('Interest_Cover'),
       beta: get('Beta'),
       high52w: get('52W_High'),
-      low52w: get('Low'),
+      low52w: get('52W_Low') != 0 ? get('52W_Low') : get('Low'),
     );
   }
 

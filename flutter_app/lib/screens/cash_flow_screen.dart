@@ -35,14 +35,14 @@ class CashFlowScreen extends StatelessWidget {
           // Quick metrics
           Row(children: [
             Expanded(child: MetricCard(
-              label: 'Operating CF (2023)',
+              label: 'Operating CF (${data.years.last})',
               value: '${formatNumber(lastOp / 1e6)} M',
               accentColor: lastOp >= 0 ? Colors.green : Colors.red,
               icon: Icons.trending_up,
             )),
             const SizedBox(width: 10),
             Expanded(child: MetricCard(
-              label: 'Closing Cash (2023)',
+              label: 'Closing Cash (${data.years.last})',
               value: '${formatNumber(lastCl / 1e6)} M',
               accentColor: const Color(0xFF1a7a4a),
               icon: Icons.account_balance_wallet_outlined,
@@ -51,14 +51,14 @@ class CashFlowScreen extends StatelessWidget {
           const SizedBox(height: 10),
           Row(children: [
             Expanded(child: MetricCard(
-              label: 'Financing CF (2023)',
+              label: 'Financing CF (${data.years.last})',
               value: '${formatNumber(lastFi / 1e6)} M',
               accentColor: lastFi >= 0 ? Colors.blue : Colors.orange,
               icon: Icons.swap_horiz,
             )),
             const SizedBox(width: 10),
             Expanded(child: MetricCard(
-              label: 'FCFF (2023)',
+              label: 'FCFF (${data.years.last})',
               value: fcff.isNotEmpty ? '${formatNumber(fcff.last / 1e6)} M' : 'N/A',
               accentColor: (fcff.isNotEmpty && fcff.last >= 0) ? Colors.green : Colors.red,
               icon: Icons.waterfall_chart,

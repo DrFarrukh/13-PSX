@@ -424,7 +424,7 @@ def data_download_page():
             with st.spinner(f"Downloading data for **{symbol}** from Sarmaaya.pk …"):
                 scrape_company_data(symbol)
             st.success(f"✅ Successfully downloaded data for **{symbol}**")
-            load_financial_data.clear()   # invalidate cache
+            st.cache_data.clear()   # invalidate all cached data after download
 
             st.subheader("Downloaded Files")
             files = sorted(os.listdir("financial_data"))
