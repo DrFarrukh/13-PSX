@@ -1,0 +1,31 @@
+# Flutter/Dart build artifacts
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+*.g.dart
+*.freezed.dart
+
+# Android build
+android/.gradle
+android/captures/
+android/local.properties
+**/GeneratedPluginRegistrant.java
+**/GeneratedPluginRegistrant.kt
+
+# iOS (not used, but standard)
+ios/.symlinks/
+ios/Pods/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+
+# Misc
+*.iml
+.idea/
+.DS_Store
