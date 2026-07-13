@@ -43,9 +43,12 @@ class StockCategorizer:
         eps_growth = float(self.income_statement.loc['EPS'].pct_change().mean() * 100) \
             if 'EPS' in self.income_statement.index else 0.0
         
-        for val in [revenue_growth, profit_growth, eps_growth]:
-            if pd.isna(val):
-                val = 0.0
+        if pd.isna(revenue_growth):
+            revenue_growth = 0.0
+        if pd.isna(profit_growth):
+            profit_growth = 0.0
+        if pd.isna(eps_growth):
+            eps_growth = 0.0
         
         # Get profitability metrics from the latest available year
         net_margin = float(self.ratios.loc['Net Profit Margin', self.latest_year])
