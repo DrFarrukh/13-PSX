@@ -1,0 +1,44 @@
+name: psx_financial_app
+description: PSX Financial Analysis Dashboard for Android
+
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Charts
+  fl_chart: ^0.68.0
+
+  # CSV parsing
+  csv: ^6.0.0
+
+  # Icons
+  cupertino_icons: ^1.0.6
+
+  # Number formatting
+  intl: ^0.19.0
+
+  # URL launcher (for "View on GitHub" button)
+  url_launcher: ^6.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/financial_data/company_snapshot.csv
+    - assets/financial_data/income_statement.csv
+    - assets/financial_data/balance_sheet.csv
+    - assets/financial_data/cash_flow.csv
+    - assets/financial_data/financial_ratios.csv
+    - assets/financial_data/payouts.csv
+    - assets/financial_data/equity.csv

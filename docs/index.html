@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PSX Financial Analysis Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <script src="https://cdn.plot.ly/plotly-2.34.0.min.js"></script>
+  <style>
+    :root {
+      --psx-green: #1a7a4a;
+      --psx-gold:  #c49a00;
+      --card-radius: 12px;
+    }
+    body { background: #f4f6fb; font-family: 'Segoe UI', sans-serif; }
+    .navbar { background: linear-gradient(135deg, #1a3a5c 0%, #1a7a4a 100%); }
+    .nav-pills .nav-link { border-radius: 30px; font-size: .85rem; font-weight: 600; color: #495057; }
+    .nav-pills .nav-link.active { background: var(--psx-green); color: #fff; }
+    .metric-card {
+      background: #fff;
+      border-radius: var(--card-radius);
+      padding: 1.1rem 1.3rem;
+      box-shadow: 0 2px 10px rgba(0,0,0,.07);
+      display: flex; flex-direction: column; gap: .25rem;
+    }
+    .metric-label { font-size: .72rem; font-weight: 700; text-transform: uppercase;
+                    letter-spacing: .06em; color: #6c757d; }
+    .metric-value { font-size: 1.45rem; font-weight: 800; color: #1a3a5c; }
+    .metric-delta { font-size: .78rem; }
+    .metric-delta.pos { color: #1a7a4a; }
+    .metric-delta.neg { color: #dc3545; }
+    .section-card {
+      background: #fff;
+      border-radius: var(--card-radius);
+      padding: 1.4rem;
+      box-shadow: 0 2px 10px rgba(0,0,0,.07);
+      margin-bottom: 1.25rem;
+    }
+    .section-title { font-weight: 700; font-size: 1rem; color: #1a3a5c; margin-bottom: 1rem; }
+    .range-bar-wrap { height: 12px; background: #e9ecef; border-radius: 6px; overflow: hidden; margin: .4rem 0; }
+    .range-bar-fill { height: 100%; background: linear-gradient(90deg, #1a7a4a, #c49a00); border-radius: 6px; }
+    .badge-rec { font-size: .85rem; padding: .45em .9em; border-radius: 20px; }
+    table.ratio-table td, table.ratio-table th { font-size: .82rem; padding: .35rem .5rem; }
+    .payout-pill { display: inline-block; padding: .2em .7em; border-radius: 20px;
+                   background: #e8f5e9; color: #1a7a4a; font-size: .78rem; font-weight: 700; }
+    .footer { font-size: .78rem; color: #adb5bd; padding: 1.5rem 0; text-align: center; }
+    @media (max-width: 575px) { .metric-value { font-size: 1.15rem; } }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark px-3 py-2 mb-4">
+  <span class="navbar-brand fw-bold fs-5">📈 PSX Financial Analysis</span>
+  <span class="text-white-50 small d-none d-md-block">Data source: Sarmaaya.pk</span>
+</nav>
+
+<div class="container-xl pb-4">
+
+  <!-- Stock badge row -->
+  <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+    <h5 class="mb-0 fw-bold text-dark">Company Data</h5>
+    <span id="price-badge" class="badge bg-success fs-6"></span>
+    <span id="change-badge" class="badge fs-6"></span>
+  </div>
+
+  <!-- Tab Navigation -->
+  <ul class="nav nav-pills mb-3 flex-wrap gap-1" id="mainTabs" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-tab="snapshot">📊 Snapshot</button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="income">📉 Income</button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="dividend">💸 Dividends</button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="cashflow">💵 Cash Flow</button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="ratios">📐 Ratios</button></li>
+    <li class="nav-item"><button class="nav-link" data-tab="about">ℹ️ About</button></li>
+  </ul>
+
+  <!-- ─────────────────── SNAPSHOT ─────────────────── -->
+  <div id="tab-snapshot">
+
+    <!-- Metric Cards -->
+    <div class="row g-3 mb-3" id="metricCards"></div>
+
+    <!-- 52-Week Range -->
+    <div class="section-card">
+      <div class="section-title">52-Week Price Range</div>
+      <div class="d-flex justify-content-between small text-muted mb-1">
+        <span id="lbl52Lo"></span><span id="lbl52Cur" class="fw-bold text-dark"></span><span id="lbl52Hi"></span>
+      </div>
+      <div class="range-bar-wrap"><div class="range-bar-fill" id="range52" style="width:0%"></div></div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-lg-5">
+        <div class="section-card h-100">
+          <div class="section-title">Financial Composition</div>
+          <div id="chartComposition" style="height:260px"></div>
+        </div>
+      </div>
+      <div class="col-lg-7">
+        <div class="section-card h-100">
+          <div class="section-title">Total Assets vs Liabilities</div>
+          <div id="chartAssetsLiab" style="height:260px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Balance Sheet key rows -->
+    <div class="section-card mt-3">
+      <div class="section-title">Balance Sheet Highlights</div>
+      <div id="chartBS" style="height:270px"></div>
+    </div>
+
+  </div><!-- /snapshot -->
+
+  <!-- ─────────────────── INCOME ─────────────────── -->
+  <div id="tab-income" class="d-none">
+
+    <div class="section-card">
+      <div class="section-title">Revenue, Gross Profit &amp; Net Profit Trend</div>
+      <div id="chartIncTrend" style="height:310px"></div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Revenue vs COGS</div>
+          <div id="chartRevCogs" style="height:260px"></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Earnings Per Share (EPS)</div>
+          <div id="chartEPS" style="height:260px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">EBITDA vs EBIT vs EBT</div>
+      <div id="chartEBITDA" style="height:270px"></div>
+    </div>
+
+  </div><!-- /income -->
+
+  <!-- ─────────────────── DIVIDEND ─────────────────── -->
+  <div id="tab-dividend" class="d-none">
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <div class="section-card h-100 text-center">
+          <div class="section-title">Dividend Quality Score</div>
+          <div id="chartGauge" style="height:200px"></div>
+          <div id="divRec" class="mt-2"></div>
+        </div>
+      </div>
+      <div class="col-md-8">
+        <div class="section-card h-100">
+          <div class="section-title">Annual Dividend Payout History (%)</div>
+          <div id="chartDivHistory" style="height:200px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">EPS vs Payout Ratio</div>
+          <div id="chartEPSPayout" style="height:250px"></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Dividend Summary</div>
+          <table class="table ratio-table table-striped">
+            <thead><tr><th>Year</th><th>Payout %</th><th>Type</th></tr></thead>
+            <tbody id="divTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /dividend -->
+
+  <!-- ─────────────────── CASH FLOW ─────────────────── -->
+  <div id="tab-cashflow" class="d-none">
+
+    <div class="row g-3 mb-3" id="cfMetricCards"></div>
+
+    <div class="section-card">
+      <div class="section-title">Cash Flow Components by Year</div>
+      <div id="chartCFComponents" style="height:300px"></div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Free Cash Flow to Firm (FCFF)</div>
+          <div id="chartFCFF" style="height:240px"></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Opening vs Closing Cash</div>
+          <div id="chartCashPos" style="height:240px"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /cashflow -->
+
+  <!-- ─────────────────── RATIOS ─────────────────── -->
+  <div id="tab-ratios" class="d-none">
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Profitability Margins</div>
+          <div id="chartProfitMargins" style="height:260px"></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Return Metrics (ROE / ROA / ROCE)</div>
+          <div id="chartReturns" style="height:260px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Liquidity Ratios</div>
+          <div id="chartLiquidity" style="height:240px"></div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="section-card">
+          <div class="section-title">Debt Ratios</div>
+          <div id="chartDebt" style="height:240px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">Latest Year Ratios Table (2023)</div>
+      <div class="table-responsive">
+        <table class="table ratio-table table-bordered table-hover" id="ratioTable">
+          <thead class="table-dark"><tr><th>Metric</th><th>2023</th><th>2022</th><th>2021</th><th>2020</th><th>2019</th></tr></thead>
+          <tbody id="ratioTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /ratios -->
+
+  <!-- ─────────────────── ABOUT ─────────────────── -->
+  <div id="tab-about" class="d-none">
+    <div class="section-card">
+      <div class="section-title">About This Dashboard</div>
+      <p>This is a <strong>static GitHub Pages dashboard</strong> for PSX (Pakistan Stock Exchange) financial analysis.
+         It visualises pre-scraped financial data from <a href="https://sarmaaya.pk" target="_blank">Sarmaaya.pk</a>.</p>
+      <hr/>
+      <h6 class="fw-bold">🖥️ Full Interactive App (Streamlit)</h6>
+      <p>The full app — with live data download, more charts, and interactive analysis — is built in Python/Streamlit.
+         Run it locally:</p>
+      <pre class="bg-light p-3 rounded"><code>git clone https://github.com/DrFarrukh/13-PSX.git
+cd 13-PSX
+pip install -r requirements.txt
+streamlit run src/streamlit_app.py</code></pre>
+      <hr/>
+      <h6 class="fw-bold">📱 Android App (Flutter)</h6>
+      <p>A Flutter/Dart Android app is also included in the <code>flutter_app/</code> folder. See <code>flutter_app/README.md</code> for build instructions.</p>
+      <hr/>
+      <h6 class="fw-bold">📂 Repository</h6>
+      <a href="https://github.com/DrFarrukh/13-PSX" class="btn btn-outline-dark btn-sm" target="_blank">
+        <i class="bi bi-github"></i> View on GitHub
+      </a>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<div class="footer">PSX Financial Analysis Dashboard &nbsp;·&nbsp; Data: Sarmaaya.pk &nbsp;·&nbsp; Built with Plotly.js &amp; Bootstrap</div>
+
+<script>
+// ─────────────────── DATA ───────────────────
+const YEARS = ["2017","2018","2019","2020","2021","2022","2023"];
+
+const SNAP = {
+  Current:159.4, Volume:4697343, Dividend:3.0, Dividend_Yield:2.41,
+  Book_Value:122.54, Market_Cap:14320000000, Debt_to_Equity:0.01,
+  Net_Profit_Margin:14.67, Gross_Profit_Margin:43.74, Current_Ratio:3.68,
+  Shares:89840000, Free_Float_Percent:35.0, Equity_to_Asset:76.22,
+  Interest_Cover:5.97, Beta:1.24, High52W:173.0, Low52W:154.01
+};
+
+const INC = {
+  Sales:       [3930,4280,5380,4710,4950,6120,7670],
+  COGS:        [2690,2350,3290,3140,3150,4010,5410],
+  GrossProfit: [1240,1940,2090,1570,1800,2100,2260],
+  PAT:         [ 320,1070,1240, 245, 192, 913,1290],
+  EBITDA:      [1120,1690,1880, 953, 850,1690,2350],
+  EBIT:        [ 392,1160,1360, 455, 320,1110,1670],
+  EBT:         [ 362,1120,1320, 406, 261,1050,1480],
+  EPS:         [3.58,11.89,13.86,2.73,2.13,10.19,14.63]
+};  // values in millions PKR (except EPS)
+
+const RAT = {
+  ROE:         [5.63,15.94,18.08,3.55,2.7,11.67,14.02],
+  ROA:         [4.34,12.35,13.80,2.70,2.0, 8.61,10.04],
+  ROCE:        [0.07,0.17, 0.20,0.06,0.04, 0.14, 0.18],
+  NetMargin:   [8.16,24.88,23.11,5.20,3.87,14.93,16.76],
+  GrossMargin: [31.6,45.25,38.85,33.26,36.39,34.41,29.49],
+  CurrentRatio:[2.08,2.65,2.81,3.20,3.0,3.21,3.14],
+  DebtEquity:  [0.30,0.29,0.31,0.32,0.35,0.35,0.40],
+  TotalDebt:   [0.23,0.23,0.24,0.24,0.26,0.26,0.28],
+  TIE:         [13.2,26.34,34.15,9.38,5.44,18.79,8.79],
+  BVperShare:  [63.51,74.53,76.67,76.78,79.07,89.11,102.0],
+  EPS:         [3.58,11.89,13.86,2.73,2.13,10.19,14.63],
+  Payout:      [40.58,21.04,20.2,0,0,0,0]
+};
+
+const CF = {
+  Operating:   [86,1520,-224,-688,1610,317,-1060],
+  Investing:   [-213,-172,-50, 93,-153,-53,  17],
+  Financing:   [893,-102,102,726, 222,-238,-116],
+  FCFF:        [49,1440,-365,-776,1310,-15,-1360],
+  Opening:     [108,875,2120,1950,2080,3760,3790],
+  Closing:     [875,2120,1950,2080,3760,3790,2630]
+};  // values in millions PKR
+
+const BS = {
+  TotalAssets:  [7380,8630,9010,9080,9580,10600,12800],
+  TotalLiab:    [1690,1940,2130,2180,2480, 2770, 3630],
+  Equity:       [5690,6690,6880,6900,7100, 7830, 9170],
+  CurrentAssets:[3460,5050,5810,6370,7140, 8620,11190],
+  TradeDebts:   [ 669,1340,2530,2200,1650, 2500, 5640],
+  Cash:         [ 875,2120,1950,2080,3760, 3790, 2630]
+};
+
+const DIV = {
+  years:  ["2007","2008","2010","2013","2016","2017","2018","2019","2024"],
+  vals:   [  0,    10,    12.5,  10,    5,    14.5,  25,    28,    30]
+};
+
+// ─────────────────── HELPERS ───────────────────
+function fmt(v, decimals=2) {
+  if (v === null || v === undefined || isNaN(v)) return 'N/A';
+  const a = Math.abs(v);
+  if (a >= 1e9) return (v/1e9).toFixed(decimals) + ' B';
+  if (a >= 1e6) return (v/1e6).toFixed(decimals) + ' M';
+  if (a >= 1e3) return (v/1e3).toFixed(decimals) + ' K';
+  return v.toFixed(decimals);
+}
+
+const LAYOUT = {
+  margin:{t:20,b:40,l:50,r:20},
+  paper_bgcolor:'rgba(0,0,0,0)',
+  plot_bgcolor:'rgba(0,0,0,0)',
+  font:{size:11},
+  xaxis:{showgrid:false},
+  yaxis:{gridcolor:'#eee'},
+  legend:{orientation:'h',y:1.1}
+};
+const CFG = {responsive:true, displayModeBar:false};
+
+// ─────────────────── TABS ───────────────────
+document.querySelectorAll('[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('[id^="tab-"]').forEach(t => t.classList.add('d-none'));
+    document.getElementById('tab-' + btn.dataset.tab).classList.remove('d-none');
+    initTab(btn.dataset.tab);
+  });
+});
+
+const rendered = {};
+function initTab(tab) {
+  if (rendered[tab]) return;
+  rendered[tab] = true;
+  if (tab === 'snapshot')  renderSnapshot();
+  if (tab === 'income')    renderIncome();
+  if (tab === 'dividend')  renderDividend();
+  if (tab === 'cashflow')  renderCashflow();
+  if (tab === 'ratios')    renderRatios();
+}
+
+// ─────────────────── SNAPSHOT ───────────────────
+function renderSnapshot() {
+  // Price badge
+  document.getElementById('price-badge').textContent = `PKR ${SNAP.Current.toFixed(2)}`;
+  const yield_ = `Div Yield: ${SNAP.Dividend_Yield}%`;
+  const yBadge = document.getElementById('change-badge');
+  yBadge.textContent = yield_;
+  yBadge.className = 'badge bg-warning text-dark fs-6';
+
+  // Metric cards
+  const cards = [
+    {label:'Current Price', value:`PKR ${SNAP.Current.toFixed(2)}`, icon:'bi-currency-dollar', color:'#1a7a4a'},
+    {label:'Market Cap',    value:fmt(SNAP.Market_Cap), icon:'bi-bar-chart-fill', color:'#1a3a5c'},
+    {label:'Dividend Yield',value:`${SNAP.Dividend_Yield}%`, icon:'bi-cash-coin', color:'#c49a00'},
+    {label:'Current Ratio', value:`${SNAP.Current_Ratio}x`, icon:'bi-speedometer2', color:'#0d6efd'},
+    {label:'Book Value/Shr',value:`PKR ${SNAP.Book_Value}`, icon:'bi-journal-richtext', color:'#6f42c1'},
+    {label:'D/E Ratio',     value:SNAP.Debt_to_Equity.toFixed(2), icon:'bi-bank', color:'#dc3545'},
+    {label:'Beta',          value:SNAP.Beta.toFixed(2), icon:'bi-graph-up-arrow', color:'#198754'},
+    {label:'Free Float',    value:`${SNAP.Free_Float_Percent}%`, icon:'bi-people-fill', color:'#0dcaf0'},
+  ];
+  document.getElementById('metricCards').innerHTML = cards.map(c => `
+    <div class="col-6 col-sm-4 col-md-3">
+      <div class="metric-card">
+        <div class="metric-label"><i class="bi ${c.icon}" style="color:${c.color}"></i> ${c.label}</div>
+        <div class="metric-value">${c.value}</div>
+      </div>
+    </div>`).join('');
+
+  // 52W range
+  const lo = SNAP.Low52W, hi = SNAP.High52W, cur = SNAP.Current;
+  const pct = ((cur - lo) / (hi - lo) * 100).toFixed(0);
+  document.getElementById('lbl52Lo').textContent  = `Low: PKR ${lo}`;
+  document.getElementById('lbl52Hi').textContent  = `High: PKR ${hi}`;
+  document.getElementById('lbl52Cur').textContent = `Current: PKR ${cur} (${pct}% of range)`;
+  document.getElementById('range52').style.width  = `${Math.min(pct,100)}%`;
+
+  // Composition pie
+  Plotly.newPlot('chartComposition', [{
+    type:'pie', hole:0.35,
+    values:[INC.Sales[6], INC.PAT[6], BS.TotalLiab[6], BS.Equity[6]],
+    labels:['Revenue','Net Profit','Total Liabilities','Equity'],
+    textinfo:'label+percent',
+    marker:{colors:['#1a7a4a','#4caf50','#dc3545','#1a3a5c']}
+  }], {...LAYOUT, showlegend:false, margin:{t:10,b:10,l:10,r:10}}, CFG);
+
+  // Assets vs Liabilities
+  Plotly.newPlot('chartAssetsLiab', [
+    {x:YEARS, y:BS.TotalAssets,  name:'Total Assets',      type:'bar', marker:{color:'#1a3a5c'}},
+    {x:YEARS, y:BS.TotalLiab,    name:'Total Liabilities', type:'bar', marker:{color:'#dc3545'}},
+    {x:YEARS, y:BS.Equity,       name:'Equity',            type:'bar', marker:{color:'#1a7a4a'}}
+  ], {...LAYOUT, barmode:'group', yaxis:{...LAYOUT.yaxis,title:'PKR Millions'}}, CFG);
+
+  // Balance sheet highlights
+  Plotly.newPlot('chartBS', [
+    {x:YEARS, y:BS.Cash,         name:'Cash & Bank', type:'bar', marker:{color:'#0d6efd'}},
+    {x:YEARS, y:BS.TradeDebts,   name:'Trade Debts', type:'bar', marker:{color:'#ffc107'}},
+    {x:YEARS, y:BS.CurrentAssets,name:'Current Assets', type:'bar', marker:{color:'#198754'}}
+  ], {...LAYOUT, barmode:'group', yaxis:{...LAYOUT.yaxis,title:'PKR Millions'}}, CFG);
+}
+
+// ─────────────────── INCOME ───────────────────
+function renderIncome() {
+  Plotly.newPlot('chartIncTrend', [
+    {x:YEARS, y:INC.Sales,       name:'Revenue',     mode:'lines+markers', line:{color:'#1a3a5c', width:2.5}},
+    {x:YEARS, y:INC.GrossProfit, name:'Gross Profit',mode:'lines+markers', line:{color:'#1a7a4a', width:2.5}},
+    {x:YEARS, y:INC.PAT,         name:'Net Profit',  mode:'lines+markers', line:{color:'#c49a00', width:2.5}},
+  ], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'PKR Millions'}, hovermode:'x unified'}, CFG);
+
+  Plotly.newPlot('chartRevCogs', [
+    {x:YEARS, y:INC.Sales, name:'Revenue', type:'bar', marker:{color:'#1a3a5c'}},
+    {x:YEARS, y:INC.COGS,  name:'COGS',    type:'bar', marker:{color:'#e74c3c'}}
+  ], {...LAYOUT, barmode:'group', yaxis:{...LAYOUT.yaxis, title:'PKR Millions'}}, CFG);
+
+  Plotly.newPlot('chartEPS', [
+    {x:YEARS, y:INC.EPS, type:'bar',
+     marker:{color:INC.EPS.map(v => v >= 5 ? '#1a7a4a' : v >= 0 ? '#c49a00' : '#dc3545')},
+     name:'EPS'}
+  ], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'PKR'}, showlegend:false}, CFG);
+
+  Plotly.newPlot('chartEBITDA', [
+    {x:YEARS, y:INC.EBITDA, name:'EBITDA', mode:'lines+markers', line:{color:'#6f42c1', width:2.5}},
+    {x:YEARS, y:INC.EBIT,   name:'EBIT',   mode:'lines+markers', line:{color:'#0d6efd', width:2.5}},
+    {x:YEARS, y:INC.EBT,    name:'EBT',    mode:'lines+markers', line:{color:'#198754', width:2.5}},
+  ], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'PKR Millions'}, hovermode:'x unified'}, CFG);
+}
+
+// ─────────────────── DIVIDEND ───────────────────
+function calcDivScore() {
+  const divYears = DIV.vals.filter(v => v > 0).length;
+  const totalYears = DIV.vals.length;
+  const consistency = (divYears / totalYears) * 40;
+  const growth = Math.min(DIV.vals.slice(-5).reduce((a,b,i,arr) => i>0 ? a+(b-arr[i-1])/arr[i-1]*100 : a, 0)/4/15*30, 30);
+  const payout = Math.max(0, (70 - RAT.Payout[6]) / 70 * 30);
+  return Math.min(100, consistency + Math.max(0, growth) + payout);
+}
+
+function renderDividend() {
+  const score = calcDivScore();
+  const rec   = score>=80 ? 'STRONG BUY' : score>=65 ? 'BUY' : score>=50 ? 'HOLD' : 'AVOID';
+  const recColor = score>=65 ? 'success' : score>=50 ? 'warning' : 'danger';
+
+  Plotly.newPlot('chartGauge', [{
+    type:'indicator', mode:'gauge+number',
+    value: score,
+    title:{text:'Score', font:{size:13}},
+    gauge:{
+      axis:{range:[0,100]},
+      bar:{color: score>=65 ? '#1a7a4a' : score>=50 ? '#c49a00' : '#dc3545'},
+      steps:[
+        {range:[0,50],  color:'#fce4e4'},
+        {range:[50,65], color:'#fff3cd'},
+        {range:[65,100],color:'#d4edda'}
+      ]
+    }
+  }], {margin:{t:30,b:10,l:20,r:20}, paper_bgcolor:'rgba(0,0,0,0)', height:200}, CFG);
+
+  document.getElementById('divRec').innerHTML =
+    `<span class="badge badge-rec bg-${recColor}">${rec}</span>`;
+
+  Plotly.newPlot('chartDivHistory', [{
+    x:DIV.years, y:DIV.vals, type:'bar',
+    marker:{color: DIV.vals.map(v => v >= 20 ? '#1a7a4a' : v > 0 ? '#c49a00' : '#aaa')},
+    name:'Payout %'
+  }], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'Payout (%)'}, showlegend:false}, CFG);
+
+  Plotly.newPlot('chartEPSPayout', [
+    {x:YEARS, y:INC.EPS,     name:'EPS (PKR)', mode:'lines+markers', line:{color:'#1a3a5c'}},
+    {x:YEARS, y:RAT.Payout,  name:'Payout %',  type:'bar', yaxis:'y2',
+     marker:{color:'rgba(196,154,0,0.4)'}, opacity:.6}
+  ], {
+    ...LAYOUT,
+    yaxis: {...LAYOUT.yaxis, title:'EPS (PKR)'},
+    yaxis2:{title:'Payout (%)', overlaying:'y', side:'right', showgrid:false},
+    hovermode:'x unified'
+  }, CFG);
+
+  // Payout table
+  const rows = DIV.years.map((yr, i) =>
+    `<tr><td>${yr}</td><td><span class="payout-pill">${DIV.vals[i]}%</span></td><td>Dividend</td></tr>`
+  ).reverse().join('');
+  document.getElementById('divTable').innerHTML = rows;
+}
+
+// ─────────────────── CASH FLOW ───────────────────
+function renderCashflow() {
+  const cfMetrics = [
+    {label:'Operating CF (2023)', value:`${CF.Operating[6] < 0 ? '–' : ''}PKR ${Math.abs(CF.Operating[6])} M`,
+     cls: CF.Operating[6] >= 0 ? 'pos' : 'neg'},
+    {label:'Investing CF (2023)', value:`PKR ${CF.Investing[6]} M`, cls:'neg'},
+    {label:'Financing CF (2023)', value:`PKR ${CF.Financing[6]} M`,
+     cls: CF.Financing[6] >= 0 ? 'pos' : 'neg'},
+    {label:'Closing Cash (2023)', value:`PKR ${CF.Closing[6]} M`, cls:'pos'},
+  ];
+  document.getElementById('cfMetricCards').innerHTML = cfMetrics.map(m => `
+    <div class="col-6 col-md-3">
+      <div class="metric-card">
+        <div class="metric-label">${m.label}</div>
+        <div class="metric-value ${m.cls}">${m.value}</div>
+      </div>
+    </div>`).join('');
+
+  Plotly.newPlot('chartCFComponents', [
+    {x:YEARS, y:CF.Operating, name:'Operating CF', type:'bar', marker:{color:'#1a7a4a'}},
+    {x:YEARS, y:CF.Investing, name:'Investing CF', type:'bar', marker:{color:'#0d6efd'}},
+    {x:YEARS, y:CF.Financing, name:'Financing CF', type:'bar', marker:{color:'#ff9800'}},
+  ], {...LAYOUT, barmode:'group', yaxis:{...LAYOUT.yaxis, title:'PKR Millions'},
+      shapes:[{type:'line',x0:YEARS[0],x1:YEARS[6],y0:0,y1:0,line:{dash:'dash',color:'#aaa',width:1}}]
+  }, CFG);
+
+  Plotly.newPlot('chartFCFF', [{
+    x:YEARS, y:CF.FCFF, type:'bar',
+    marker:{color: CF.FCFF.map(v => v >= 0 ? '#1a7a4a' : '#dc3545')},
+    name:'FCFF'
+  }], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'PKR Millions'}, showlegend:false,
+       shapes:[{type:'line',x0:YEARS[0],x1:YEARS[6],y0:0,y1:0,line:{dash:'dash',color:'#aaa',width:1}}]
+  }, CFG);
+
+  Plotly.newPlot('chartCashPos', [
+    {x:YEARS, y:CF.Opening, name:'Opening Cash', mode:'lines+markers', line:{color:'#6f42c1'}},
+    {x:YEARS, y:CF.Closing, name:'Closing Cash', mode:'lines+markers', line:{color:'#1a7a4a'}}
+  ], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'PKR Millions'}, hovermode:'x unified'}, CFG);
+}
+
+// ─────────────────── RATIOS ───────────────────
+function renderRatios() {
+  Plotly.newPlot('chartProfitMargins', [
+    {x:YEARS, y:RAT.GrossMargin, name:'Gross Margin %', mode:'lines+markers', line:{color:'#1a7a4a'}},
+    {x:YEARS, y:RAT.NetMargin,   name:'Net Margin %',   mode:'lines+markers', line:{color:'#c49a00'}},
+  ], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'%'}, hovermode:'x unified'}, CFG);
+
+  Plotly.newPlot('chartReturns', [
+    {x:YEARS, y:RAT.ROE,               name:'ROE %',  mode:'lines+markers', line:{color:'#1a3a5c'}},
+    {x:YEARS, y:RAT.ROA,               name:'ROA %',  mode:'lines+markers', line:{color:'#0d6efd'}},
+    {x:YEARS, y:RAT.ROCE.map(v=>v*100),name:'ROCE %', mode:'lines+markers', line:{color:'#6f42c1'}},
+  ], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'%'}, hovermode:'x unified'}, CFG);
+
+  Plotly.newPlot('chartLiquidity', [
+    {x:YEARS, y:RAT.CurrentRatio, name:'Current Ratio', mode:'lines+markers', line:{color:'#198754'}},
+  ], {...LAYOUT, yaxis:{...LAYOUT.yaxis, title:'Ratio'}, showlegend:false}, CFG);
+
+  Plotly.newPlot('chartDebt', [
+    {x:YEARS, y:RAT.DebtEquity, name:'D/E Ratio',   type:'bar', marker:{color:'#dc3545'}},
+    {x:YEARS, y:RAT.TotalDebt,  name:'Total Debt R',type:'bar', marker:{color:'#ff9800'}}
+  ], {...LAYOUT, barmode:'group', yaxis:{...LAYOUT.yaxis, title:'Ratio'}}, CFG);
+
+  // Table (2023–2019)
+  const tableRows = [
+    ['Gross Profit Margin (%)', ...RAT.GrossMargin.slice(-5).reverse()],
+    ['Net Profit Margin (%)',   ...RAT.NetMargin.slice(-5).reverse()],
+    ['Return on Equity (%)',    ...RAT.ROE.slice(-5).reverse()],
+    ['Return on Assets (%)',    ...RAT.ROA.slice(-5).reverse()],
+    ['Current Ratio',           ...RAT.CurrentRatio.slice(-5).reverse()],
+    ['Debt/Equity',             ...RAT.DebtEquity.slice(-5).reverse()],
+    ['Times Interest Earned',   ...RAT.TIE.slice(-5).reverse()],
+    ['EPS (PKR)',                ...RAT.EPS.slice(-5).reverse()],
+    ['Book Value/Share (PKR)',   ...RAT.BVperShare.slice(-5).reverse()],
+    ['Payout Ratio (%)',         ...RAT.Payout.slice(-5).reverse()],
+  ];
+  document.getElementById('ratioTableBody').innerHTML = tableRows.map(row =>
+    `<tr>${row.map((v,i) => `<td>${i===0 ? v : (typeof v === 'number' ? v.toFixed(2) : v)}</td>`).join('')}</tr>`
+  ).join('');
+}
+
+// ─────────────────── BOOT ───────────────────
+renderSnapshot();
+rendered['snapshot'] = true;
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
