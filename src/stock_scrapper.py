@@ -4,6 +4,7 @@ import requests
 import os
 import logging
 import traceback
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -14,6 +15,34 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+_SESSION = requests.Session()
+_HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/120.0.0.0 Safari/537.36'
+    )
+}
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 2  # seconds
+
+
+def _get_with_retry(url: str, retries: int = _MAX_RETRIES) -> requests.Response:
+    """GET request with exponential-backoff retry on transient errors."""
+    for attempt in range(1, retries + 1):
+        try:
+            response = _SESSION.get(url, headers=_HEADERS, timeout=15)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            if attempt == retries:
+                logging.error(f"All {retries} attempts failed for {url}: {exc}")
+                raise
+            wait = _RETRY_BACKOFF ** attempt
+            logging.warning(f"Attempt {attempt} failed for {url}: {exc}. Retrying in {wait}s…")
+            time.sleep(wait)
+
 
 def clean_value(value):
     """Convert string values like '1.26 K' or '147.00 B' to float with improved validation"""
@@ -28,22 +57,24 @@ def clean_value(value):
         if value in ['-', '', 'N/A', 'None', 'null']:
             return 0
             
-        # Remove commas, parentheses, and percentage signs
-        value = value.replace(',', '').replace('%', '').replace('(', '').replace(')', '')
+        # Remove commas and percentage signs; handle parentheses as negatives
+        value = value.replace(',', '').replace('%', '')
         
         try:
+            # Handle negative values in parentheses before stripping them
+            if value.startswith('(') and value.endswith(')'):
+                return -float(value[1:-1])
+            # Remove remaining parentheses
+            value = value.replace('(', '').replace(')', '')
             # Handle K (thousands)
             if 'K' in value:
-                return float(value.replace('K', '')) * 1000
+                return float(value.replace('K', '')) * 1_000
             # Handle M (millions)
             elif 'M' in value:
-                return float(value.replace('M', '')) * 1000000
+                return float(value.replace('M', '')) * 1_000_000
             # Handle B (billions)
             elif 'B' in value:
-                return float(value.replace('B', '')) * 1000000000
-            # Handle negative values with brackets
-            elif value.startswith('(') and value.endswith(')'):
-                return -float(value[1:-1])
+                return float(value.replace('B', '')) * 1_000_000_000
             return float(value)
         except (ValueError, TypeError):
             logging.warning(f"Could not convert value '{value}' to float, returning 0")
@@ -68,8 +99,8 @@ def scrape_company_snapshot(soup):
             'Dividend': 'Dividend',
             'Dividend Yield': 'Dividend_Yield',
             'Price to Earnings Ratio': 'PE_Ratio',
-            'Earnings Per Share': 'EPS',  # Fixed the field name
-            'EPS': 'EPS',  # Alternative field name
+            'Earnings Per Share': 'EPS',
+            'EPS': 'EPS',
             'Book Value': 'Book_Value',
             'Price to Book': 'PB_Ratio',
             'Market Cap': 'Market_Cap',
@@ -90,22 +121,23 @@ def scrape_company_snapshot(soup):
             'Low': 'Low'
         }
         
-        # Process each field with improved error handling
         for title, key in fields.items():
             tag = snapshot_table.find('strong', title=lambda x: x and title in x)
             if tag and tag.find_next('br'):
-                value = tag.find_next('br').next_sibling.strip()
-                snapshot_data[key] = clean_value(value)
-                if key == 'EPS' and key not in snapshot_data:
-                    # Try alternative ways to find EPS
-                    eps_tag = snapshot_table.find('strong', title=lambda x: x and 'EPS' in x)
-                    if eps_tag and eps_tag.find_next('br'):
-                        value = eps_tag.find_next('br').next_sibling.strip()
-                        snapshot_data[key] = clean_value(value)
-                    else:
-                        # Set default EPS if not found
-                        snapshot_data[key] = 0
-                        logging.warning("EPS value not found in snapshot data")
+                raw_value = tag.find_next('br').next_sibling
+                if raw_value:
+                    snapshot_data[key] = clean_value(str(raw_value).strip())
+
+        # Fallback for EPS if not found
+        if 'EPS' not in snapshot_data or snapshot_data['EPS'] == 0:
+            eps_tag = snapshot_table.find('strong', title=lambda x: x and 'EPS' in x)
+            if eps_tag and eps_tag.find_next('br'):
+                raw_value = eps_tag.find_next('br').next_sibling
+                if raw_value:
+                    snapshot_data['EPS'] = clean_value(str(raw_value).strip())
+            if 'EPS' not in snapshot_data:
+                logging.warning("EPS value not found in snapshot data")
+                snapshot_data['EPS'] = 0
         
         return snapshot_data
     except Exception as e:
@@ -117,26 +149,19 @@ def scrape_financial_data(url):
     """Scrape financial data from the given URL"""
     logging.info(f"Starting to scrape financial data from {url}")
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers)
+        response = _get_with_retry(url)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Create output directory if it doesn't exist
-        if not os.path.exists('financial_data'):
-            os.makedirs('financial_data')
+        os.makedirs('financial_data', exist_ok=True)
         
-        # Dictionary to map tab IDs to file names
         tab_mapping = {
-            'nav-statement': 'income_statement.csv',
-            'nav-balance': 'balance_sheet.csv',
-            'nav-cash': 'cash_flow.csv',
+            'nav-statement':    'income_statement.csv',
+            'nav-balance':      'balance_sheet.csv',
+            'nav-cash':         'cash_flow.csv',
             'nav-ratioFinance': 'financial_ratios.csv',
-            'nav-equity': 'equity.csv'
+            'nav-equity':       'equity.csv'
         }
         
-        # Process each tab
         for tab_id, filename in tab_mapping.items():
             logging.info(f"Processing tab: {tab_id}")
             tab_content = soup.find('div', {'id': tab_id})
@@ -144,28 +169,28 @@ def scrape_financial_data(url):
                 logging.warning(f"Tab content not found for {tab_id}")
                 continue
                 
-            if tab_content:
-                # Find the table in the tab
-                table = tab_content.find('table')
-                if table:
-                    # Extract headers (years)
-                    headers = ['Metric'] + [th.text.strip() for th in table.find('tr').find_all('th')[1:]]
-                    
-                    # Extract rows
-                    rows = []
-                    for tr in table.find_all('tr')[1:]:  # Skip header row
-                        cells = tr.find_all(['td', 'th'])
-                        if cells:
-                            row = [cells[0].text.strip()]  # Metric name
-                            row.extend([clean_value(cell.text.strip()) for cell in cells[1:]])
-                            if len(row) == len(headers):  # Only add rows that match header length
-                                rows.append(row)
-                    
-                    # Create DataFrame and save to CSV
-                    df = pd.DataFrame(rows, columns=headers)
-                    output_path = os.path.join('financial_data', filename)
-                    df.to_csv(output_path, index=False)
-                    print(f"Saved {filename}")
+            table = tab_content.find('table')
+            if not table:
+                logging.warning(f"Table not found in tab {tab_id}")
+                continue
+
+            header_cells = table.find('tr').find_all('th')
+            headers = ['Metric'] + [th.text.strip() for th in header_cells[1:]]
+            
+            rows = []
+            for tr in table.find_all('tr')[1:]:
+                cells = tr.find_all(['td', 'th'])
+                if cells:
+                    row = [cells[0].text.strip()]
+                    row.extend([clean_value(cell.text.strip()) for cell in cells[1:]])
+                    if len(row) == len(headers):
+                        rows.append(row)
+            
+            df = pd.DataFrame(rows, columns=headers)
+            output_path = os.path.join('financial_data', filename)
+            df.to_csv(output_path, index=False)
+            logging.info(f"Saved {filename}")
+            print(f"Saved {filename}")
     except Exception as e:
         logging.error(f"Error in scrape_financial_data: {str(e)}")
         logging.debug(traceback.format_exc())
@@ -175,46 +200,35 @@ def scrape_payout_data(url):
     """Scrape payout data from the given URL"""
     logging.info(f"Starting to scrape payout data from {url}")
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers)
+        response = _get_with_retry(url)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Create output directory if it doesn't exist
-        if not os.path.exists('financial_data'):
-            os.makedirs('financial_data')
+        os.makedirs('financial_data', exist_ok=True)
         
-        # Find the payout table
         table = soup.find('table', {'id': 'company-payouts'})
         if not table:
             logging.warning("Payout table not found")
             return
             
-        if table:
-            # Extract headers
-            headers = [th.text.strip() for th in table.find('thead').find_all('th')]
-            
-            # Extract rows
-            rows = []
-            for tr in table.find('tbody').find_all('tr'):
-                cells = tr.find_all('td')
-                row = [cell.text.strip() for cell in cells]
-                rows.append(row)
-            
-            # Create DataFrame
-            df = pd.DataFrame(rows, columns=headers)
-            
-            # Convert numeric columns
-            numeric_columns = ['Payout %', 'Face Value']
-            for col in numeric_columns:
-                if col in df.columns:
-                    df[col] = df[col].apply(lambda x: clean_value(x) if x else 0)
-            
-            # Save to CSV
-            output_path = os.path.join('financial_data', 'payouts.csv')
-            df.to_csv(output_path, index=False)
-            print("Saved payouts.csv")
+        headers = [th.text.strip() for th in table.find('thead').find_all('th')]
+        
+        rows = []
+        for tr in table.find('tbody').find_all('tr'):
+            cells = tr.find_all('td')
+            row = [cell.text.strip() for cell in cells]
+            rows.append(row)
+        
+        df = pd.DataFrame(rows, columns=headers)
+        
+        numeric_columns = ['Payout %', 'Face Value']
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: clean_value(x) if x else 0)
+        
+        output_path = os.path.join('financial_data', 'payouts.csv')
+        df.to_csv(output_path, index=False)
+        logging.info("Saved payouts.csv")
+        print("Saved payouts.csv")
     except Exception as e:
         logging.error(f"Error in scrape_payout_data: {str(e)}")
         logging.debug(traceback.format_exc())
@@ -222,58 +236,48 @@ def scrape_payout_data(url):
 
 def scrape_company_data(symbol):
     """Main function to scrape all company data"""
+    symbol = symbol.strip().upper()
     logging.info(f"Starting to scrape data for company symbol: {symbol}")
     
-    # Create output directory if it doesn't exist
-    if not os.path.exists('financial_data'):
-        os.makedirs('financial_data')
+    os.makedirs('financial_data', exist_ok=True)
     
-    base_url = "https://sarmaaya.pk"
+    base_url      = "https://sarmaaya.pk"
     financial_url = f"{base_url}/ajax/widgets/all_financials.php?symbol={symbol}"
-    payout_url = f"{base_url}/ajax/widgets/company_payouts.php?symbol={symbol}"
-    company_url = f"{base_url}/psx/company/{symbol}"
+    payout_url    = f"{base_url}/ajax/widgets/company_payouts.php?symbol={symbol}"
+    company_url   = f"{base_url}/psx/company/{symbol}"
     
     try:
-        # Scrape company snapshot
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        
         logging.info(f"Requesting company page: {company_url}")
-        response = requests.get(company_url, headers=headers)
-        response.raise_for_status()  # Raise an exception for bad status codes
-        
+        response = _get_with_retry(company_url)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Get company snapshot data
         snapshot_data = scrape_company_snapshot(soup)
         if not snapshot_data:
             logging.warning("No snapshot data was retrieved")
         
-        # Save snapshot data to CSV
-        snapshot_df = pd.DataFrame([snapshot_data])
+        snapshot_df   = pd.DataFrame([snapshot_data])
         snapshot_path = os.path.join('financial_data', 'company_snapshot.csv')
         snapshot_df.to_csv(snapshot_path, index=False)
+        logging.info("Saved company_snapshot.csv")
         print("Saved company_snapshot.csv")
         
-        # Scrape other financial data
         scrape_financial_data(financial_url)
         scrape_payout_data(payout_url)
         
-        logging.info("Data scraping completed successfully!")
+        logging.info(f"Data scraping for {symbol} completed successfully!")
         
     except requests.RequestException as e:
-        logging.error(f"Network error occurred: {str(e)}")
+        logging.error(f"Network error for {symbol}: {str(e)}")
         logging.debug(traceback.format_exc())
+        raise
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {str(e)}")
+        logging.error(f"Unexpected error for {symbol}: {str(e)}")
         logging.debug(traceback.format_exc())
         raise
 
 if __name__ == "__main__":
     try:
         symbol = input("Enter stock symbol (default: MARI): ").strip() or "MARI"
-        symbol = symbol.upper()
         scrape_company_data(symbol)
     except Exception as e:
         logging.error(f"Script failed: {str(e)}")
